@@ -11,6 +11,21 @@
     return instance;
 }
 
+- (instancetype)init {
+    self = [super init];
+    if (self) {
+        _transactions = [NSMutableArray array];
+        _paymentQueue = [SKPaymentQueue defaultQueue];
+        _written = NO;
+    }
+    return self;
+}
+
+- (void)setDefaultObserver {
+    [[SKPaymentQueue defaultQueue] addTransactionObserver:self];
+    NSLog(@"[collect] CollectAppStore registered as transaction observer");
+}
+
 #pragma mark - Product Request (StoreKit 1)
 
 - (void)requestProductData:(NSString *)productId {
@@ -35,6 +50,7 @@
         self.currency = [product.priceLocale objectForKey:NSLocaleCurrencyCode];
 
         SKMutablePayment *payment = [SKMutablePayment paymentWithProduct:product];
+        self.payment = payment;
         [[SKPaymentQueue defaultQueue] addPayment:payment];
     }
 }
@@ -43,6 +59,7 @@
 }
 
 - (void)request:(SKRequest *)request didFailWithError:(NSError *)error {
+    [self dismissHUD];
     if (self.backMassages) {
         self.backMassages(@{@"error": error.localizedDescription ?: @"Request failed"});
     }
@@ -54,14 +71,14 @@
     for (SKPaymentTransaction *transaction in transactions) {
         switch (transaction.transactionState) {
             case SKPaymentTransactionStatePurchased:
-                [self uploadTransaction:transaction];
+                self.purchasedtransaction = transaction;
+                [self getTransactionReceipt:transaction];
                 [[SKPaymentQueue defaultQueue] finishTransaction:transaction];
                 break;
             case SKPaymentTransactionStateFailed:
+                self.failedtransaction = transaction;
+                [self transactionFailed];
                 [[SKPaymentQueue defaultQueue] finishTransaction:transaction];
-                if (self.backMassages) {
-                    self.backMassages(@{@"error": transaction.error.localizedDescription ?: @"Purchase failed"});
-                }
                 break;
             case SKPaymentTransactionStateRestored:
                 [[SKPaymentQueue defaultQueue] finishTransaction:transaction];
@@ -95,9 +112,9 @@
 - (void)paymentQueue:(SKPaymentQueue *)queue didRevokeEntitlementsForProductIdentifiers:(NSArray<NSString *> *)productIdentifiers {
 }
 
-#pragma mark - Upload Transaction
+#pragma mark - Receipt Handling
 
-- (void)uploadTransaction:(SKPaymentTransaction *)transaction {
+- (void)getTransactionReceipt:(SKPaymentTransaction *)transaction {
     NSMutableDictionary *transInfo = [NSMutableDictionary dictionary];
     transInfo[@"transactionIdentifier"] = transaction.transactionIdentifier ?: @"";
     transInfo[@"productIdentifier"] = transaction.payment.productIdentifier ?: @"";
@@ -107,11 +124,14 @@
     transInfo[@"profductName"] = self.profductName ?: @"";
     transInfo[@"currency"] = self.currency ?: @"";
 
+    // Extract and base64 encode the receipt
     NSURL *receiptURL = [[NSBundle mainBundle] appStoreReceiptURL];
+    NSString *receiptBase64 = @"";
     if (receiptURL) {
         NSData *receiptData = [NSData dataWithContentsOfURL:receiptURL];
         if (receiptData) {
-            transInfo[@"receipt"] = [receiptData base64EncodedStringWithOptions:0];
+            receiptBase64 = [receiptData base64EncodedStringWithOptions:0];
+            transInfo[@"receipt"] = receiptBase64;
         }
     }
 
@@ -119,8 +139,20 @@
         transInfo[@"srcOrderNo"] = transaction.originalTransaction.transactionIdentifier ?: @"";
     }
 
+    // Store receipt temporarily
+    self.receiptTemporary = receiptBase64;
+    self.receiptTimeChar = [self getInternetDate:transaction.transactionDate];
+    self.orderNo = transaction.transactionIdentifier;
+    self.transactiondate = [self getInternetDate:transaction.transactionDate];
+
+    // Persist to local file
     NSString *filePath = [self userfilePatch];
     if (filePath) {
+        NSFileManager *fm = [NSFileManager defaultManager];
+        if (![fm fileExistsAtPath:filePath]) {
+            [fm createDirectoryAtPath:filePath withIntermediateDirectories:YES attributes:nil error:nil];
+        }
+
         NSString *receiptPath = [filePath stringByAppendingPathComponent:
                                  [NSString stringWithFormat:@"%@receipt.plist", transaction.transactionIdentifier]];
         [transInfo writeToFile:receiptPath atomically:YES];
@@ -131,44 +163,120 @@
         [history writeToFile:historyPath atomically:YES];
     }
 
+    // Add to transactions array
+    [self.transactions addObject:transInfo];
+    self.written = YES;
+
     if (self.backMassages) {
         self.backMassages(transInfo);
     }
 }
 
+- (void)transactionFailed {
+    [self dismissHUD];
+    SKPaymentTransaction *transaction = self.failedtransaction;
+    NSString *errorMessage = transaction.error.localizedDescription ?: @"Purchase failed";
+    NSLog(@"[collect] Transaction failed: %@", errorMessage);
+
+    if (self.backMassages) {
+        self.backMassages(@{@"error": errorMessage});
+    }
+}
+
+#pragma mark - Upload Transaction
+
+- (void)uploadTransaction:(SKPaymentTransaction *)transaction {
+    [self getTransactionReceipt:transaction];
+}
+
 #pragma mark - Login
 
 - (void)loginWithUsername:(NSString *)username andPwd:(NSString *)password {
-    // POST to child/login endpoint
-    NSString *urlString = @"child/login";
-    NSLog(@"[collect] loginWithUsername: %@ to %@", username, urlString);
+    if ([self isBlankString:username] || [self isBlankString:password]) {
+        NSLog(@"[collect] Login: username or password is blank");
+        return;
+    }
+
+    NSString *md5Pwd = [self stringToMD5:password];
+    NSDictionary *loginData = @{
+        @"accountName": username,
+        @"password": md5Pwd ?: password
+    };
+
+    [self showHUD];
+
+    NSLog(@"[collect] Login request with username: %@", username);
 
     // Store credentials to PersonalInformation.plist
     NSString *docPath = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
     NSString *plistPath = [docPath stringByAppendingPathComponent:@"PersonalInformation.plist"];
     NSDictionary *userInfo = @{@"username": username ?: @"", @"password": password ?: @""};
     [userInfo writeToFile:plistPath atomically:YES];
+
+    [self dismissHUD];
 }
 
+#pragma mark - HUD
 
-#pragma mark - Setup / UI helpers (originally obfuscated: OYGjEIzCfAMOilhy, LeFSJmRBBKwRGGiK, PfHyMkWernDPEVaB)
+- (void)showHUD {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (self.HUD) return;
 
-- (void)setupCollectUI {
-    // Originally: OYGjEIzCfAMOilhy
-    NSLog(@"[collect] setupCollectUI");
+        UIWindow *kw = nil;
+        for (UIWindowScene *scene in [UIApplication sharedApplication].connectedScenes) {
+            if (scene.activationState == UISceneActivationStateForegroundActive) {
+                for (UIWindow *w in scene.windows) {
+                    if (w.isKeyWindow) { kw = w; break; }
+                }
+            }
+            if (kw) break;
+        }
+        if (!kw) return;
+
+        self.HUD = [[UIView alloc] initWithFrame:kw.bounds];
+        self.HUD.backgroundColor = [UIColor colorWithWhite:0 alpha:0.3];
+        [kw addSubview:self.HUD];
+
+        UIActivityIndicatorView *indicator = [[UIActivityIndicatorView alloc]
+            initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleLarge];
+        indicator.center = self.HUD.center;
+        [self.HUD addSubview:indicator];
+        [indicator startAnimating];
+    });
 }
 
-- (void)configureProductDisplay {
-    // Originally: LeFSJmRBBKwRGGiK
-    NSLog(@"[collect] configureProductDisplay");
-}
-
-- (void)handlePurchaseResult {
-    // Originally: PfHyMkWernDPEVaB
-    NSLog(@"[collect] handlePurchaseResult");
+- (void)dismissHUD {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self.HUD removeFromSuperview];
+        self.HUD = nil;
+    });
 }
 
 #pragma mark - Utility
+
+- (NSString *)stringToMD5:(NSString *)input {
+    if (!input) return nil;
+    const char *cStr = [input UTF8String];
+    unsigned char digest[CC_MD5_DIGEST_LENGTH];
+    CC_MD5(cStr, (CC_LONG)strlen(cStr), digest);
+
+    NSMutableString *output = [NSMutableString stringWithCapacity:CC_MD5_DIGEST_LENGTH * 2];
+    for (int i = 0; i < CC_MD5_DIGEST_LENGTH; i++) {
+        [output appendFormat:@"%02x", digest[i]];
+    }
+    return output;
+}
+
+- (BOOL)isBlankString:(NSString *)string {
+    if (!string) return YES;
+    if ([string isKindOfClass:[NSNull class]]) return YES;
+    if (![string isKindOfClass:[NSString class]]) return YES;
+    if (string.length == 0) return YES;
+
+    NSCharacterSet *whitespace = [NSCharacterSet whitespaceAndNewlineCharacterSet];
+    NSString *trimmed = [string stringByTrimmingCharactersInSet:whitespace];
+    return trimmed.length == 0;
+}
 
 - (NSString *)getInternetDate:(NSDate *)date {
     if (!date) return @"";
