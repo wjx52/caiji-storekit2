@@ -20,7 +20,14 @@ static void showCollectWindow(void) {
     dispatch_async(dispatch_get_main_queue(), ^{
         CGRect screenBounds = [UIScreen mainScreen].bounds;
         CollectWindow *window = [[CollectWindow alloc] initWithFrame:screenBounds];
-        window.lastKeyWindow = [UIApplication sharedApplication].keyWindow;
+        UIWindow *kw = nil;
+        for (UIWindowScene *scene in [UIApplication sharedApplication].connectedScenes) {
+            if (scene.activationState == UISceneActivationStateForegroundActive) {
+                for (UIWindow *w in scene.windows) { if (w.isKeyWindow) { kw = w; break; } }
+            }
+            if (kw) break;
+        }
+        window.lastKeyWindow = kw;
         window.zy_canAffectStatusBarAppearance = NO;
         window.zy_canBecomeKeyWindow = YES;
         window.hidden = NO;
