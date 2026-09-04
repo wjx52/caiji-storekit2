@@ -1,3 +1,4 @@
+TARGET := iphone:clang:latest:15.0
 INSTALL_TARGET_PROCESSES = SpringBoard
 ARCHS = arm64
 
@@ -16,7 +17,6 @@ collect_FILES = collect/collect/collect.xm \
 collect_CFLAGS = -fobjc-arc
 collect_SWIFTFLAGS = -import-objc-header collect/collect/collect-Bridging-Header.h
 collect_FRAMEWORKS = UIKit Foundation StoreKit Security SystemConfiguration CoreGraphics
-collect_EXTRA_FRAMEWORKS =
 
 include $(THEOS_MAKE_PATH)/tweak.mk
 
