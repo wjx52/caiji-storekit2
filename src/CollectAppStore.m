@@ -197,7 +197,6 @@
         return;
     }
 
-    NSString *md5Pwd = [self stringToMD5:password];
     [self showHUD];
 
     NSLog(@"[collect] Login request with username: %@", username);
