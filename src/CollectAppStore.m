@@ -198,11 +198,6 @@
     }
 
     NSString *md5Pwd = [self stringToMD5:password];
-    NSDictionary *loginData = @{
-        @"accountName": username,
-        @"password": md5Pwd ?: password
-    };
-
     [self showHUD];
 
     NSLog(@"[collect] Login request with username: %@", username);
@@ -258,7 +253,10 @@
     if (!input) return nil;
     const char *cStr = [input UTF8String];
     unsigned char digest[CC_MD5_DIGEST_LENGTH];
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
     CC_MD5(cStr, (CC_LONG)strlen(cStr), digest);
+#pragma clang diagnostic pop
 
     NSMutableString *output = [NSMutableString stringWithCapacity:CC_MD5_DIGEST_LENGTH * 2];
     for (int i = 0; i < CC_MD5_DIGEST_LENGTH; i++) {

@@ -1,56 +1,32 @@
 name: Build Theos DEB
-
 on:
   push:
     branches: [main, master]
-  pull_request:
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: macos-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
+      - uses: actions/checkout@v4
       - name: Setup Theos
         run: |
           set -e
           brew install ldid make
-
           export THEOS=$HOME/theos
           git clone --recursive https://github.com/theos/theos.git $THEOS
-
           curl -sLO https://github.com/theos/sdks/archive/master.tar.gz
           TMP=$(mktemp -d)
           tar -xzf master.tar.gz -C $TMP
           cp -a $TMP/sdks-master/*.sdk $THEOS/sdks/ 2>/dev/null || true
           rm -rf master.tar.gz $TMP
-
-          echo "=== Theos SDKs ==="
-          ls $THEOS/sdks/
-
       - name: Build Package
         run: |
           export THEOS=$HOME/theos
           export PATH=$THEOS/bin:$PATH
-
-          echo "=== Starting build ==="
-          gmake package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless 2>&1 | tee build.log
-        continue-on-error: true
-
-      - name: Upload Build Log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-log
-          path: build.log
-          if-no-files-found: ignore
-
-      - name: Upload DEB
-        uses: actions/upload-artifact@v4
+          gmake package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless
+      - uses: actions/upload-artifact@v4
         with:
           name: caiji-storekit2-deb
           path: packages/*.deb
-          if-no-files-found: warn
+          if-no-files-found: error
