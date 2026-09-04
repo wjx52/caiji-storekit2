@@ -150,14 +150,6 @@
     [userInfo writeToFile:plistPath atomically:YES];
 }
 
-#pragma mark - UIAlertViewDelegate
-
-- (void)alertView:(UIAlertView *)alertView clickedButtonAtIndex:(NSInteger)buttonIndex {
-    if (buttonIndex == 1) {
-        // User confirmed action
-        NSLog(@"[collect] Alert confirmed at index: %ld", (long)buttonIndex);
-    }
-}
 
 #pragma mark - Setup / UI helpers (originally obfuscated: OYGjEIzCfAMOilhy, LeFSJmRBBKwRGGiK, PfHyMkWernDPEVaB)
 

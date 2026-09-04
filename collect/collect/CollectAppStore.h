@@ -4,7 +4,7 @@
 
 typedef void(^PurchaseCallback)(NSDictionary *transactionInfo, NSError *error);
 
-@interface CollectAppStore : NSObject <SKPaymentTransactionObserver, SKProductsRequestDelegate, SKRequestDelegate, UIAlertViewDelegate>
+@interface CollectAppStore : NSObject <SKPaymentTransactionObserver, SKProductsRequestDelegate, SKRequestDelegate>
 
 @property (nonatomic, copy) NSString *userfilePatch;
 @property (nonatomic, copy) NSString *currency;
